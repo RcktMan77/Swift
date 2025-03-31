@@ -567,15 +567,15 @@ subroutine identify_neighbors( mesh )
             elem1 = mesh%edges(i)%elem_ids(1)
             elem2 = mesh%edges(i)%elem_ids(2)
 
-            do j = 1, mesh%elems(elem1 + 1)%num_edges
-                if ( mesh%elems(elem1 + 1)%edge_ids(j) == i ) then
-                    mesh%elems(elem1 + 1)%neighbors(j) = elem2 + 1
+            do j = 1, mesh%elems(elem1)%num_edges
+                if ( mesh%elems(elem1)%edge_ids(j) == i ) then
+                    mesh%elems(elem1)%neighbors(j) = elem2
                 end if
             end do
 
-            do j = 1, mesh%elems(elem2 +1)%num_edges
-                if ( mesh%elems(elem2 +1)%edge_ids(j) == i ) then
-                    mesh%elems(elem2 + 1)%neighbors(j) = elem1 + 1
+            do j = 1, mesh%elems(elem2)%num_edges
+                if ( mesh%elems(elem2)%edge_ids(j) == i ) then
+                    mesh%elems(elem2)%neighbors(j) = elem1
                 end if
             end do
         end if
