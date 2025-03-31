@@ -1,0 +1,36 @@
+&governing_equations
+    eqn_type = 'compressible'
+    viscous_terms = 'laminar'
+/
+
+&reference_physical_properties
+    reynolds_number = 6.0e+06
+    mach_number = 0.15
+    angle_of_attack = 0.0
+    temperature = 540.0
+    temperature_units = 'Rankine'
+/
+
+&code_run_control
+    steps = 1000
+    stopping_tolerance = 1.0e-12
+/
+
+&nonlinear_solver_parameters
+    time_accuracy = 'steady'
+
+    schedule_iteration =   1      500
+    schedule_cfl =       1.0    100.0
+    schedule_cflturb =   0.5     50.0
+/
+
+&boundary_conditions
+    boundary_name(1) = 'airfoil'
+    boundary_type(1) = 4000
+    wall_temp_flag(1) = .true.
+    wall_temperature(1) = -1.0
+
+    boundary_name(2) = 'farfield'
+    boundary_type(2) = 5000
+/
+
