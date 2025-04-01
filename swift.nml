@@ -24,6 +24,12 @@
     schedule_cflturb =   0.5     50.0
 /
 
+&inviscid_flux_method
+    flux_construction = 'roe'
+    flux_construction_lhs = 'consistent'
+    flux_limiter = 'none'
+/
+
 &boundary_conditions
     boundary_name(1) = 'airfoil'
     boundary_type(1) = 4000

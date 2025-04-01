@@ -32,6 +32,13 @@ module namelist_definitions
     real(dp) :: schedule_cfl(2) = [200.0_dp, 200.0_dp], &
                 schedule_cflturb(2) = [50.0_dp, 50.0_dp]
 
+    ! Inviscid Flux Method
+    character(len=15) :: flux_construction = 'roe', &
+                         flux_construction_lhs = 'consistent', &
+                         flux_limiter = 'none'
+
+    real(dp) :: kappa_umuscl = 0.5
+
     ! Turbulent Diffusion Models
     character(len=15) :: turbulence_model = 'sa'
 
@@ -74,6 +81,12 @@ module namelist_definitions
         eqn_type, &
         viscous_terms, &
         prandtl_number
+
+    namelist /inviscid_flux_method/ &
+        flux_construction, &
+        flux_construction_lhs, &
+        flux_limiter, &
+        kappa_umuscl
 
     namelist /nonlinear_solver_parameters/ &
         time_accuracy, &

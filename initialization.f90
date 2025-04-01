@@ -28,7 +28,7 @@ subroutine check_and_read_namelist( mesh, filename )
     integer :: unit_num, line_num, ios, i, j
 
     logical :: file_exists, found_ref_phys, found_code_run, found_nonlin,      &
-               found_bndry, found_gov, found_turb
+               found_invis, found_bndry, found_gov, found_turb
 
     character(len=80) :: line
 
@@ -57,6 +57,7 @@ subroutine check_and_read_namelist( mesh, filename )
     found_nonlin   = .false.
     found_bndry    = .false.
     found_gov      = .false.     ! Optional namelist
+    found_invis    = .false.     ! Optional namelist
     found_turb     = .false.     ! Optional namelist
 
     line_num = 0
@@ -116,6 +117,17 @@ subroutine check_and_read_namelist( mesh, filename )
                 end if
 
                 found_nonlin = .true.
+
+            case ( 'inviscid_flux_method' )
+                read(unit_num, nml=inviscid_flux_method, iostat=ios)
+
+                if ( ios /= 0 ) then
+                    write(*,*) 'Error parsing inviscid_flux_method ',   &
+                        'namelist. ios = ', ios
+                    stop
+                end if
+
+                found_invis = .true.
 
             case ( 'governing_equations' )
                 read(unit_num, nml=governing_equations, iostat=ios)
@@ -180,6 +192,9 @@ subroutine check_and_read_namelist( mesh, filename )
         stop 'Error: Required namelist boundary_conditions not found.'
     end if
     if ( .not. found_gov ) then
+        ! Optional namelist
+    end if
+    if ( .not. found_invis ) then
         ! Optional namelist
     end if
     if ( trim(viscous_terms) == 'turbulent' .and. .not. found_turb ) then

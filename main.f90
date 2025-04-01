@@ -173,6 +173,7 @@ program main
     write(*,'("Reynolds Number:    ", ES12.6E2)') reynolds_number
     write(*,'("Mach Number:        ", ES12.6E2)') mach_number
     write(*,'("Temperature:        ", ES12.6E2)') temperature
+    write(*,'("Inviscid Flux Method:  ", A)') flux_construction
 
     print *, ' '
 
