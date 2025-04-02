@@ -61,6 +61,8 @@ module grid_types
         type(element), allocatable :: elems(:)
         type(boundary), allocatable :: bndrys(:)
         real(dp), allocatable :: dx(:)
+        integer, allocatable :: node_degree(:)  ! Number of neighbors per node
+        integer, allocatable :: node_neighbors(:,:) ! Neighbor IDs
     end type grid
 
 end module grid_types

@@ -315,9 +315,9 @@ subroutine extract_edges( mesh )
 
     type(grid), intent(inout) :: mesh
 
-    integer :: num_edges, n1, n2, edge_id, i, j, k
+    integer :: num_edges, n1, n2, edge_id, max_deg, i, j, k
 
-    integer, allocatable :: edge_map(:,:)
+    integer, allocatable :: edge_map(:,:), temp_count(:)
 
     ! Map SU2's 0-based node_ids to Fortran's native 1-based indexing
     ! for arrays.
@@ -429,7 +429,39 @@ subroutine extract_edges( mesh )
         end if
     end do
 
-    deallocate( edge_map )
+    ! Compute node degrees and max degree
+    allocate( temp_count(mesh%num_pts) )
+    temp_count = 0
+
+    do i = 1, mesh%num_edges
+        n1 = mesh%edges(i)%node_ids(1)
+        n2 = mesh%edges(i)%node_ids(2)
+
+        temp_count(n1) = temp_count(n1) + 1
+        temp_count(n2) = temp_count(n2) + 1
+    end do
+
+    max_deg = maxval( temp_count )
+
+    ! Allocate and populate node_degree & node_neighbors
+    allocate( mesh%node_degree(mesh%num_pts) )
+    allocate( mesh%node_neighbors(max_deg, mesh%num_pts) )
+
+    mesh%node_degree = temp_count
+
+    temp_count = 0
+    mesh%node_neighbors = 0
+    do i = 1, mesh%num_edges
+        n1 = mesh%edges(i)%node_ids(1)
+        n2 = mesh%edges(i)%node_ids(2)
+
+        temp_count(n1) = temp_count(n1) + 1
+        mesh%node_neighbors(temp_count(n1),n1) = n2
+        temp_count(n2) = temp_count(n2) + 1
+        mesh%node_neighbors(temp_count(n2),n2) = n1
+    end do
+
+    deallocate( edge_map, temp_count )
 end subroutine extract_edges
 
 

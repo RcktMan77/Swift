@@ -3,6 +3,7 @@ program main
     use flow_types, only : primitive_state
     use namelist_definitions
     use initialization
+    use gradients
     use grid_properties
     use dual_mesh
     use write_output
@@ -116,6 +117,13 @@ program main
 
     print *, 'Calculate Characteristic Lengths: ', end_time - start_time
 
+    ! Calculate gradients
+    call cpu_time( start_time )
+    call compute_least_squares_gradients( mesh, w )
+    call cpu_time( end_time )
+
+    print *, 'Compute Least Squares Gradients: ', end_time - start_time
+
     ! Write output
     call cpu_time( start_time )
     call write_szplt( mesh, w, output_filename )
@@ -192,6 +200,35 @@ program main
     write(*, '(A, F8.6, A, F8.6)')                                             &
         ' End:   x = ', mesh%dual_faces(1)%end%x,                              &
         ' y = ', mesh%dual_faces(1)%end%y
+
+    print *, ' '
+
+    print *, 'Gradients for Element 1 Nodes:'
+    do j = 1, mesh%elems(1)%num_nodes
+        i = mesh%elems(1)%node_ids(j)
+        write(*, '(A, I0, A, I5, A)') ' Node ', j, ' (node_id = ', i, ')'
+        write(*, '(A, ES12.6, A, ES12.6, A)')                                  &
+            '   ∇(ρ) = [', w(i)%grad(1,1), ', ', w(i)%grad(1,2), ']'
+        write(*, '(A, ES12.6, A, ES12.6, A)')                                  &
+            '   ∇(u) = [', w(i)%grad(2,1), ', ', w(i)%grad(2,2), ']'
+        write(*, '(A, ES12.6, A, ES12.6, A)')                                  &
+            '   ∇(v) = [', w(i)%grad(3,1), ', ', w(i)%grad(3,2), ']'
+        write(*, '(A, ES12.6, A, ES12.6, A)')                                  &
+            '   ∇(p) = [', w(i)%grad(4,1), ', ', w(i)%grad(4,2), ']'
+
+        if ( nturb >= 1 ) then
+            write(*, '(A, ES12.6, A, ES12.6, A)')                              &
+                '   ∇(ν) = [', w(i)%grad(5,1), ', ', w(i)%grad(5,2), ']'
+        end if
+
+        if ( nturb >= 2 ) then
+            write(*, '(A, ES12.6, A, ES12.6, A)')                              &
+                '   ∇(κ) = [', w(i)%grad(5,1), ', ', w(i)%grad(5,2), ']'
+            write(*, '(A, ES12.6, A, ES12.6, A)')                              &
+                '   ∇(ω) = [', w(i)%grad(6,1), ', ', w(i)%grad(6,2), ']'
+        end if
+    end do
+
 
 contains
 
