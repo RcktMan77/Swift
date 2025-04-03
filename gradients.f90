@@ -7,7 +7,8 @@ module gradients
       implicit none
 
       private
-      public :: compute_least_squares_gradients
+      public :: compute_least_squares_gradients,                               &
+                compute_green_gauss_gradients
 
 contains
 
@@ -89,5 +90,73 @@ subroutine compute_least_squares_gradients( mesh, w )
     end do
     !$omp end parallel do
 end subroutine compute_least_squares_gradients
+
+! The compute_green_gauss_gradients subroutine computes gradients at each
+! element's centroid using the Green-Gauss theorem:
+
+! ∇φ = 1/Ω * ∑φS, where:
+
+! Ω is mesh%elems(i)%area,
+! S is the outward normal vector multiplied by the edge length
+! (mesh%elems(i)*edge_normals * mesh%edges(edge_id)%length ), &
+! φ is the average of the primitive state variables at the two nodes of
+! an edge.
+
+! Computes gradients at element centroids, then these gradients will be
+! interpolated to dual faces for viscous fluxes, maintaining consistency
+! with the node-centered dual mesh by averaging to face midpoints.
+
+subroutine compute_green_gauss_gradients( mesh, w, elem_grad )
+    implicit none
+
+    type(grid), intent(in) :: mesh
+
+    type(primitive_state), intent(in) :: w(:)
+
+    real(dp), allocatable, intent(out) :: elem_grad(:,:,:)
+
+    real(dp) :: phi_f, Sx, Sy, inv_area
+
+    integer :: edge_id, n1, n2, nvars, i, j
+
+    nvars = 4 + nturb
+
+    allocate( elem_grad(nvars, 2, mesh%num_elems) )
+
+    do i = 1, mesh%num_elems
+        if ( mesh%elems(i)%is_bndry ) cycle     ! Skip boundary elements
+
+        inv_area = 1.0_dp / mesh%elems(i)%area
+        elem_grad(:,:,i) = 0.0_dp
+
+        do j = 1, mesh%elems(i)%num_edges
+            edge_id = mesh%elems(i)%edge_ids(j)
+            n1 = mesh%edges(edge_id)%node_ids(1)
+            n2 = mesh%edges(edge_id)%node_ids(2)
+            Sx = mesh%elems(i)%edge_normals(1,j) * mesh%edges(edge_id)%length
+            Sy = mesh%elems(i)%edge_normals(2,j) * mesh%edges(edge_id)%length
+
+            do nvars = 1, 4 + nturb
+                if ( nvars == 1 ) then
+                    phi_f = 0.5_dp * ( w(n1)%rho + w(n2)%rho )
+                else if ( nvars <= 3 ) then
+                    phi_f = 0.5_dp * ( w(n1)%vel(nvars-1) + w(n2)%vel(nvars-1) )
+                else if ( nvars == 4 ) then
+                    phi_f = 0.5_dp * ( w(n1)%p + w(n2)%p )
+                else
+                    phi_f = 0.5_dp * ( w(n1)%turb(nvars-4) +                   &
+                                       w(n2)%turb(nvars-4) )
+                end if
+
+                elem_grad(nvars,1,i) = elem_grad(nvars,1,i) +                  &
+                                       phi_f * Sx * inv_area
+
+                elem_grad(nvars,2,i) = elem_grad(nvars,2,i) +                  &
+                                       phi_f * Sy * inv_area
+            end do
+        end do
+    end do
+end subroutine compute_green_gauss_gradients
+
 
 end module gradients

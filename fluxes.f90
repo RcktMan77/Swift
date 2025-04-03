@@ -2,15 +2,17 @@ module fluxes
       use kind_defs,            only : dp
       use flow_types,           only : primitive_state, conservative_state,    &
                                        flux_state
-      use grid_types,           only : dual_face
-      use namelist_definitions, only : gamma
+      use grid_types,           only : grid, dual_face
+      use namelist_definitions, only : gamma, flux_construction, flux_limiter, &
+                                       kappa_umuscl, prandtl_number
       use initialization,       only : nturb
 
       implicit none
 
       private
       public :: primitive_to_conservative, conservative_to_primitive,          &
-                compute_flux, lax_friedrichs_flux, roe_flux, hlle_flux
+                compute_flux, lax_friedrichs_flux, roe_flux, hlle_flux,        &
+                compute_limiter, compute_inviscid_fluxes
 
 contains
 
@@ -527,5 +529,179 @@ function hlle_flux( q_left, q_right, n ) result( F_num )
         end if
     end if
 end function hlle_flux
+
+
+! This function computes the limiter value ψ, based on the ratio, r and
+! the limiter type.
+function compute_limiter( r, lim_type ) result( psi )
+    implicit none
+
+    real(dp), intent(in) :: r
+
+    character(len=*), intent(in) :: lim_type
+
+    real(dp) :: psi
+
+    select case( trim(lim_type) )
+    case ( 'vanalbada' )
+        psi = ( r**2 + r ) / ( r**2 + 1.0_dp )
+    case ( 'vanleer' )
+        psi = ( r + abs(r) ) / ( 1.0_dp + abs(r) )
+    case ( 'barth' )
+        ! Barth requires pre-computation; return 1.0 here, adjust in subroutine
+        psi = 1.0_dp
+    case ( 'none' )
+        psi = 1.0_dp
+    case default
+        psi = 1.0_dp ! Fallback to no limiting
+    end select
+end function compute_limiter
+
+
+! The compute_inviscid_fluxes subroutine reconstructs left & right states
+! at each dual face, converts to conservative variables, and computes fluxes
+! using an existing flux scheme, configurable via flux_construction
+
+! Numerics: For each dual face (stored in mesh%dual_faces):
+
+! Use node gradients (w(i)%grad) to exrapolate primitive variables (ρ, u, v,
+! p, turb) to the face midpoint from both nodes.
+
+! Extrapolation: φₗ = φn1 + ∇φn1 · rn1->f, φᵣ = φn2 + ∇φn2 · rn2->f,
+! where r uses dual_face%area and direction from node to midpoint.
+
+! Applies user-selected limiter, ψ, based on r where:
+
+! r = (φn2 - φn1) / (∇φn1 · r),
+
+! to limit the gradient contribution, ensuring monotonicity without excessive
+! dissipation.
+
+subroutine compute_inviscid_fluxes( mesh, w )
+    implicit none
+
+    type(grid), intent(inout) :: mesh
+
+    type(primitive_state), intent(in) :: w(:)
+
+    type(conservative_state) :: q_left, q_right
+
+    type(primitive_state) :: w_left, w_right
+
+    type(flux_state) :: F
+    
+    real(dp) :: r_vec(2), r, psi, dx, dy, grad_contrib
+
+    integer :: n1, n2, nvars, i, j
+
+    nvars = 4 + nturb
+
+    do i = 1, mesh%num_edges
+        if ( .not. allocated( mesh%edges(i)%flux ) ) then
+            allocate( mesh%edges(i)%flux(nvars) )
+        end if
+
+        n1 = mesh%edges(i)%node_ids(1)
+        n2 = mesh%edges(i)%node_ids(2)
+
+        dx = ( mesh%points(n2)%x - mesh%points(n1)%x ) * 0.5_dp
+        dy = ( mesh%points(n2)%y - mesh%points(n1)%y ) * 0.5_dp
+
+        r_vec = [dx, dy]
+
+        ! Initialize left & right states
+        w_left = w(n1)
+        w_right = w(n2)
+
+        if ( nturb > 0 ) then
+            allocate( w_left%turb(nturb), w_right%turb(nturb) )
+            w_left%turb = w(n1)%turb
+            w_right%turb = w(n2)%turb
+        end if
+
+        ! Reconstruct with selected limiter
+        do j = 1, nvars
+            if ( j == 1 ) then
+                ! Left state
+                grad_contrib = dot_product( w(n1)%grad(j,:), r_vec )
+                r = ( w(n2)%rho - w(n1)%rho ) / ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_left%rho = w(n1)%rho + kappa_umuscl * psi * grad_contrib
+
+                ! Right state
+                grad_contrib = dot_product( w(n2)%grad(j,:), -r_vec )
+                r = ( w(n1)%rho - w(n2)%rho ) / ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_right%rho = w(n2)%rho + kappa_umuscl * psi * grad_contrib
+            else if ( j <= 3 ) then
+                grad_contrib = dot_product( w(n1)%grad(j,:), r_vec )
+                r = ( w(n2)%vel(j-1) - w(n1)%vel(j-1) ) /                      &
+                    ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_left%vel(j-1) = w(n1)%vel(j-1) + kappa_umuscl * psi *        &
+                    grad_contrib
+
+                grad_contrib = dot_product( w(n2)%grad(j,:), -r_vec )
+                r = ( w(n1)%vel(j-1) - w(n2)%vel(j-1) ) /                      &
+                    ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_right%vel(j-1) = w(n2)%vel(j-1) + kappa_umuscl * psi *       &
+                    grad_contrib
+            else if ( j == 4 ) then
+                grad_contrib = dot_product( w(n1)%grad(j,:), r_vec )
+                r = ( w(n2)%p - w(n1)%p ) / ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_left%p = w(n1)%p + kappa_umuscl * psi * grad_contrib
+
+                grad_contrib = dot_product( w(n2)%grad(j,:), -r_vec )
+                r = ( w(n1)%p - w(n2)%p ) / ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_right%p = w(n2)%p + kappa_umuscl * psi * grad_contrib
+            else
+                grad_contrib = dot_product( w(n1)%grad(j,:), r_vec )
+                r = ( w(n2)%turb(j-4) - w(n1)%turb(j-4) ) /                    &
+                    ( grad_contrib + 1.0e-10 )
+                psi = compute_limiter( r, flux_limiter )
+                w_left%turb(j-4) = w(n1)%turb(j-4) + kappa_umuscl * psi *      &
+                    grad_contrib
+
+                grad_contrib = dot_product( w(n2)%grad(j,:), -r_vec )
+                r = ( w(n1)%turb(j-4) - w(n2)%turb(j-4) ) /                    &
+                    ( grad_contrib + 1.0e-10_dp )
+                psi = compute_limiter( r, flux_limiter )
+                w_right%turb(j-4) = w(n2)%turb(j-4) + kappa_umuscl * psi *     &
+                    grad_contrib
+            end if
+        end do
+
+        ! Compute flux
+        q_left = primitive_to_conservative( w_left )
+        q_right = primitive_to_conservative( w_right )
+
+        select case ( trim(flux_construction) )
+        case ( 'lax-friedrichs' )
+            F = lax_friedrichs_flux( q_left, q_right,                          &
+                                     mesh%dual_faces(i)%normal )
+        case ( 'roe' )
+            F = roe_flux( q_left, q_right, mesh%dual_faces(i)%normal )
+        case ( 'hlle' )
+            F = hlle_flux( q_left, q_right, mesh%dual_faces(i)%normal )
+        case default
+            F = roe_flux( q_left, q_right, mesh%dual_faces(i)%normal )
+        end select
+
+        mesh%edges(i)%flux(1) = F%rho_u
+        mesh%edges(i)%flux(2:3) = F%m_flux
+        mesh%edges(i)%flux(4) = F%e_flux
+
+        if ( nturb > 0 ) then
+            mesh%edges(i)%flux(5:4+nturb) = F%turb_flux
+        end if
+
+        if ( allocated( w_left%turb ) ) then
+            deallocate( w_left%turb, w_right%turb )
+        end if
+    end do
+end subroutine compute_inviscid_fluxes
 
 end module fluxes

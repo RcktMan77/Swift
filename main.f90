@@ -3,9 +3,10 @@ program main
     use flow_types, only : primitive_state
     use namelist_definitions
     use initialization
-    use gradients
     use grid_properties
     use dual_mesh
+    use gradients
+    use fluxes
     use write_output
 
     implicit none
@@ -123,6 +124,13 @@ program main
     call cpu_time( end_time )
 
     print *, 'Compute Least Squares Gradients: ', end_time - start_time
+
+    ! Compute fluxes
+    call cpu_time( start_time )
+    call compute_inviscid_fluxes( mesh, w )
+    call cpu_time( end_time )
+
+    print *, 'Compute Inviscid Fluxes: ', end_time - start_time
 
     ! Write output
     call cpu_time( start_time )

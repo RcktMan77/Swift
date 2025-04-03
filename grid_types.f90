@@ -15,7 +15,7 @@ module grid_types
                                       ! share a node with boundary elements
         integer :: node_ids(2)
         integer, allocatable :: elem_ids(:)
-        real(dp), allocatable :: flux(:,:)
+        real(dp), allocatable :: flux(:)
     end type edge
 
     type :: dual_face

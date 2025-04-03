@@ -29,6 +29,7 @@ SRC = kind_defs.f90 \
 	  namelist_definitions.f90 \
 	  initialization.f90 \
 	  gradients.f90 \
+	  fluxes.f90 \
 	  grid_properties.f90 \
 	  dual_mesh.f90 \
 	  write_output.f90 \
@@ -75,6 +76,13 @@ gradients.o: gradients.f90 \
 			 grid_types.mod \
 			 flow_types.mod
 
+fluxes.o: fluxes.f90 \
+	      kind_defs.mod \
+		  grid_types.mod \
+		  flow_types.mod \
+		  namelist_definitions.mod \
+		  initialization.mod
+
 grid_properties.o: grid_properties.f90 \
 				   kind_defs.mod \
 				   grid_types.mod
@@ -95,6 +103,7 @@ main.o: main.f90 \
 		namelist_definitions.mod \
 		initialization.mod \
 		gradients.mod \
+		fluxes.mod \
 	    grid_properties.mod \
 		dual_mesh.mod \
 		write_output.mod
