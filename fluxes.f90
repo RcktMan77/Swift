@@ -4,15 +4,17 @@ module fluxes
                                        flux_state
       use grid_types,           only : grid, dual_face
       use namelist_definitions, only : gamma, flux_construction, flux_limiter, &
-                                       kappa_umuscl, prandtl_number
-      use initialization,       only : nturb
+                                       kappa_umuscl, prandtl_number,           &
+                                       temperature, temperature_units
+      use initialization,       only : sutherland_viscosity, nturb
 
       implicit none
 
       private
       public :: primitive_to_conservative, conservative_to_primitive,          &
                 compute_flux, lax_friedrichs_flux, roe_flux, hlle_flux,        &
-                compute_limiter, compute_inviscid_fluxes
+                compute_limiter, compute_inviscid_fluxes,                      &
+                compute_viscous_fluxes
 
 contains
 
@@ -703,5 +705,122 @@ subroutine compute_inviscid_fluxes( mesh, w )
         end if
     end do
 end subroutine compute_inviscid_fluxes
+
+
+! The compute_viscous_fluxes subroutine calculates the viscous flux
+! contributions--arising from viscosity & heat conduction--to the momentum
+! and energy equations. The viscous fluxes are the terms involving τ (
+! momentum dissipation) and q (heat conduction). Notably, there is no 
+! viscous contribution to the mass equation, as diffusion doesn't directly
+! affect mass conservation.
+
+subroutine compute_viscous_fluxes( mesh, w, elem_grad )
+    implicit none
+
+    type(grid), intent(inout) :: mesh
+
+    type(primitive_state), intent(in) :: w(:)
+
+    real(dp), intent(in) :: elem_grad(:,:,:)
+
+    real(dp) :: grad_u(2), grad_v(2), grad_T(2), grad_p(2), grad_rho(2)
+
+    real(dp) :: mu_bar, T_bar_f, T_f, mu, tsp, mu_inf, tau_xx, tau_xy, tau_yy, &
+                q_x, q_y, div_u, rho_avg, p_avg
+
+    integer :: n1, n2, elem1, elem2, nvars, i
+
+    ! Convert reference temperature to °R
+    if ( trim(temperature_units) == 'Kelvin' ) then
+        tsp = temperature * 9.0_dp / 5.0_dp
+    else if ( trim(temperature_units) == 'Rankine' ) then
+        tsp = temperature
+    else
+        stop 'Invalid temperature_units in reference_physical_properties ' //  &
+             'namelist.'
+    end if
+
+    ! Compute reference viscosity
+    mu_inf = sutherland_viscosity( tsp )
+
+    nvars = 4 + nturb
+    do i = 1, mesh%num_edges
+        n1 = mesh%edges(i)%node_ids(1)
+        n2 = mesh%edges(i)%node_ids(2)
+        elem1 = mesh%edges(i)%elem_ids(1)
+        elem2 = mesh%edges(i)%elem_ids(2)
+
+        ! Compute non-dimensional temperature at edge midpoint
+        T_bar_f = 0.5_dp * ( gamma * w(n1)%p / w(n1)%rho + gamma * w(n2)%p /   &
+            w(n2)%rho )
+
+        ! Compute dimensional temperature in °R
+        T_f = T_bar_f * tsp
+
+        ! Compute dimensional viscosity using Sutherland's Law
+        mu = sutherland_viscosity( T_f )
+
+        ! Compute non-dimensional viscosity
+        mu_bar = mu / mu_inf
+
+        ! Interpolate gradients to face
+        if ( elem2 > 0 ) then    ! Interior edge
+            grad_rho = 0.5_dp * ( elem_grad(1,:,elem1) + elem_grad(1,:,elem2) )
+            grad_u = 0.5_dp * ( elem_grad(2,:,elem1) + elem_grad(2,:,elem2) )
+            grad_v = 0.5_dp * ( elem_grad(3,:,elem1) + elem_grad(3,:,elem2) )
+            grad_p = 0.5_dp * ( elem_grad(4,:,elem1) + elem_grad(4,:,elem2) )
+
+            rho_avg = 0.5_dp * ( w(n1)%rho + w(n2)%rho )
+            p_avg = 0.5_dp * ( w(n1)%p + w(n2)%p )
+        else    ! Boundary edge
+            grad_rho = elem_grad(1,:,elem1)
+            grad_u = elem_grad(2,:,elem1)
+            grad_v = elem_grad(3,:,elem1)
+            grad_p = elem_grad(4,:,elem1)
+
+            rho_avg = w(n1)%rho
+            p_avg = w(n1)%p
+        end if
+
+        ! Compute non-dimensional temperature gradient
+        grad_T = gamma * ( grad_p / rho_avg - p_avg * grad_rho / rho_avg**2 )
+
+        ! Compute viscous stresses with non-dimensional viscosity. Note:
+        ! Here we adopt Stokes' hypothesis and assume λ = 0, that is, the
+        ! bulk viscosity is negligible. The bulk viscosity represents a
+        ! fluid's resistance to isotropic expansion or compression
+        ! (volumetric change) distinct from shear viscosity, μ, which
+        ! resists deformation.
+        div_u = grad_u(1) + grad_v(2)
+        tau_xx = 2.0_dp * mu_bar * grad_u(1) - (2.0_dp/3.0_dp) * mu_bar * div_u
+        tau_xy = mu_bar * ( grad_u(2) + grad_v(1) )
+        tau_yy = 2.0_dp * mu_bar * grad_v(2) - (2.0_dp/3.0_dp) * mu_bar * div_u
+
+        ! Compute non-dimensional heat flux using k_bar = mu_bar (assumes
+        ! constant cp). This simplifies the computation since Pr = μ * cp / κ
+        ! is constant, and in non-dimensional form, the scaling factors
+        ! cancel appropriately.
+        q_x = -mu_bar * grad_T(1)
+        q_y = -mu_bar * grad_T(2)
+
+        ! Add contributions to edge flux
+        if ( .not. allocated( mesh%edges(i)%flux ) ) then
+            allocate( mesh%edges(i)%flux(nvars) )
+        end if
+
+        mesh%edges(i)%flux(2) = mesh%edges(i)%flux(2) +                        &
+            ( tau_xx * mesh%dual_faces(i)%normal(1) + tau_xy *                 &
+              mesh%dual_faces(i)%normal(2) ) * mesh%edges(i)%length
+
+        mesh%edges(i)%flux(3) = mesh%edges(i)%flux(3) +                        &
+            ( tau_xy * mesh%dual_faces(i)%normal(1) + tau_yy *                 &
+              mesh%dual_faces(i)%normal(2) ) * mesh%edges(i)%length
+
+        mesh%edges(i)%flux(4) = mesh%edges(i)%flux(4) +                        &
+            ( q_x * mesh%dual_faces(i)%normal(1) +                             &
+              q_y * mesh%dual_faces(i)%normal(2) ) * mesh%edges(i)%length
+    end do
+end subroutine compute_viscous_fluxes
+
 
 end module fluxes

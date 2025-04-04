@@ -7,7 +7,8 @@ module initialization
     implicit none
 
     private
-    public :: check_and_read_namelist, initialize_flow, nturb
+    public :: check_and_read_namelist, initialize_flow, sutherland_viscosity,  &
+              nturb
 
     integer :: nturb        ! Number of turbulence transport equations
 

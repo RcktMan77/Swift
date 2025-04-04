@@ -19,6 +19,8 @@ program main
 
     character(len=20) :: grid_filename, input_filename, output_filename
 
+    real(dp), allocatable :: elem_grad(:,:,:)
+
     real :: start_time, end_time
 
     ! Specify the grid file to read
@@ -118,19 +120,34 @@ program main
 
     print *, 'Calculate Characteristic Lengths: ', end_time - start_time
 
-    ! Calculate gradients
+    ! Calculate inviscid gradients
     call cpu_time( start_time )
     call compute_least_squares_gradients( mesh, w )
     call cpu_time( end_time )
 
-    print *, 'Compute Least Squares Gradients: ', end_time - start_time
+    print *, 'Compute Least-Squares Gradients: ', end_time - start_time
 
-    ! Compute fluxes
+
+    ! Calculate viscous gradients
+    call cpu_time( start_time )
+    call compute_green_gauss_gradients( mesh, w, elem_grad )
+    call cpu_time( end_time )
+
+    print *, 'Compute Green-Gauss Gradients: ', end_time - start_time
+
+    ! Compute inviscid fluxes
     call cpu_time( start_time )
     call compute_inviscid_fluxes( mesh, w )
     call cpu_time( end_time )
 
     print *, 'Compute Inviscid Fluxes: ', end_time - start_time
+
+    ! Compute flux viscous contributions
+    call cpu_time( start_time )
+    call compute_viscous_fluxes( mesh, w, elem_grad )
+    call cpu_time( end_time )
+
+    print *, 'Compute Flux Viscous Contributions: ', end_time - start_time
 
     ! Write output
     call cpu_time( start_time )
